@@ -574,9 +574,13 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
      * public parameter for run time adjustment
      *
      */
-    public double actTH = 1.01;
+    public double actTH = 1.25;
     boolean voiceOn = false;
     boolean voiceConf = false;
+
+    long curSTime, lastSTime;
+    ;
+    long timeDiff;
 
     /**
      *
@@ -657,12 +661,8 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
         if (GUI.ON && pMain.origMode) {
             for (int i = 0; i < FFTNo; i++) {
                 db[i] = Math.log10(shortDiff[i]) * 10.0;
-                // db[i] = Math.log10(shortMean[i]) * 10.0;
-                // db[i] = Math.log10(longVec[i]) * 10.0;
-                // db[i] = Math.log10(shortVec[i]) * 10.0;
             }
             ((FreqSpectrum) pMain.spectrumPan).updateSpec(db);
-            // return;
         }
 
         /**
@@ -685,9 +685,10 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
         lSum = longSum;
         slratio = sSum / lSum;
         if (GUI.ON) {
-            // ((MsgPan) Main.msgPan).setMsg(0, ""+df.format(slratio));
+            ((MsgPan) Main.msgPan).setMsg(0, "" + df.format(slratio));
         }
-        if (slratio < (actTH)) {
+
+        if (slratio < actTH) {
             /**
              * silent pattern, active count = 0
              */
@@ -728,6 +729,8 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
             }
         }
 
+        curSTime = System.currentTimeMillis();
+
         if (voiceOn) {
             if (pMain.controlPan.tFileState == STATE.RECORDING) {
                 show2(".");
@@ -745,7 +748,7 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
                  * only <low freq> is treated as <Beat>
                  */
                 for (int i = 0; i < PATT_SIZE; i++) {
-                    if (maxIndex[i] < 10) {
+                    if (maxIndex[i] < 5) {
                         base = true;
                     }
                 }
