@@ -54,6 +54,7 @@ public class ControlPan implements Share {
      *
      */
     public double disp_mDist;
+    Category trainCat;
     Chain trainChain;
 
     public ControlPan(Main main_) {
@@ -452,16 +453,18 @@ public class ControlPan implements Share {
     }
 
     public void addTrainData(int[] maxIdx_) {
-        try {
-            if (true) {
-                if (GUI.ON) {
-                    cType = ((JComboBox) type).getSelectedItem().toString();
-                }
-            } else {
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+        Node nNode = new Node(maxIdx_);
+        trainChain.addNode(nNode);
+    }
+
+    public void newTrainData() {
+        if (GUI.ON) {
+            cType = ((JComboBox) type).getSelectedItem().toString();
         }
+        if (trainChain != null && trainChain.nodes.size() > 50) {
+            trainCat.addChain(trainChain);
+        }
+        trainChain = new Chain(cType);
     }
 
     public void loadAndMatch() {
@@ -563,6 +566,7 @@ public class ControlPan implements Share {
                     System.out.println("錄製訓練樣本 .... ");
                 }
                 tFileState = STATE.RECORDING;
+                trainCat = new Category("Train");
             } else {
                 if (GUI.ON) {
                     ((Toaster) toaster).showToaster("樣本檔還未打開 .... ");
