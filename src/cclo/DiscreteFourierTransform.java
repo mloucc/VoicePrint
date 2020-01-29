@@ -732,17 +732,21 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
         curSTime = System.currentTimeMillis();
 
         if (voiceOn) {
+            timeDiff = curSTime - lastSTime;
+            lastSTime = curSTime;
             if (pMain.controlPan.tFileState == STATE.RECORDING) {
                 show2(".");
-                pMain.controlPan.addTrainData(maxIndex);
-
+                if (timeDiff < 1000L) {
+                    pMain.controlPan.addTrainData(maxIndex);
+                } else {
+                    pMain.controlPan.newTrainData();
+                    pMain.controlPan.addTrainData(maxIndex);
+                }
             } else if (pMain.controlPan.latState == STATE.MATCH) {
                 Node iNode = new Node(maxIndex);
                 if (DEBUG) {
                     // System.out.print(".");
                 }
-                // pMain.controlPan.matchInput(iNode);
-                // pMain.controlPan.matchInput(iNode);
                 boolean base = false;
                 /**
                  * only <low freq> is treated as <Beat>
