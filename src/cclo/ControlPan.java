@@ -26,6 +26,8 @@ import java.util.Scanner;
 import javax.swing.*;
 
 public class ControlPan implements Share {
+    
+    
 
     String tFileName = "temp.txt";
     String lFileName = "lattice.txt";
@@ -39,6 +41,7 @@ public class ControlPan implements Share {
 
     Trainer trainer;
     Lattice lattice;
+    
     DecimalFormat df = new DecimalFormat("0.00");
     DecimalFormat twoD = new DecimalFormat("00");
     String cMatch = "None";
@@ -55,11 +58,10 @@ public class ControlPan implements Share {
      */
     public double disp_mDist;
     Category trainCat;
-    Chain trainChain;
+    Chain trainChain, matchChain;
 
     public ControlPan(Main main_) {
         pMain = main_;
-        beatTimer.setRepeats(false);
         if (GUI.ON) {
             /**
              * GUI Mode variable
@@ -128,6 +130,7 @@ public class ControlPan implements Share {
                     ((JComboBox) type).addItem(newType.getText());
                 }
             });
+            
 
             open.addActionListener(
                     new ActionListener() {
@@ -225,7 +228,7 @@ public class ControlPan implements Share {
 
         }
 
-        lattice = new Lattice("Snore");
+        lattice = new Lattice("Lattice");
         trainer = new Trainer(this);
 
     }
@@ -258,7 +261,6 @@ public class ControlPan implements Share {
         public void actionPerformed(ActionEvent e) {
             String mString = "None";
             cMatch = "None";
-            stopTimer.stop();
             if (pMain.mqtt.connected) {
                 pMain.mqtt.publish(mString);
             }
@@ -280,9 +282,6 @@ public class ControlPan implements Share {
             System.out.flush();
         }
     };
-    public Timer matchTimer = new Timer(1500, showListener);
-    public Timer stopTimer = new Timer(5000, stopListener);
-    public Timer beatTimer = new Timer(200, beatListener);
 
     double distSum = 0.0;
 
@@ -400,7 +399,7 @@ public class ControlPan implements Share {
         }
     }
 
-    public void matchInput(Node iv) {
+    public void matchInput(Chain chain_) {
 
         boolean inLattice;
         int minDist = Integer.MAX_VALUE;
@@ -415,11 +414,6 @@ public class ControlPan implements Share {
          * find <minimal distance> to <all node in lattice>
          */
         inLattice = false;
-        if (!matchTimer.isRunning()) {
-            matchTimer.start();
-            stopTimer.stop();
-        }
-
     }
 
     public void showMatchResult() {
@@ -445,9 +439,6 @@ public class ControlPan implements Share {
                 /**
                  * cMatch is some type, not <None>
                  */
-                if (!stopTimer.isRunning()) {
-                    stopTimer.start();
-                }
             }
         }
     }
@@ -457,29 +448,78 @@ public class ControlPan implements Share {
         trainChain.addNode(nNode);
     }
 
-    public void newTrainData() {
+    public void newTrainChain() {
         if (GUI.ON) {
             cType = ((JComboBox) type).getSelectedItem().toString();
         }
-        if (trainChain != null && trainChain.nodes.size() > 50) {
-            trainCat.addChain(trainChain);
-        }
+        endTrainChain();
         trainChain = new Chain(cType);
     }
 
+    public void endTrainChain() {
+        /**
+         * ending an training chain
+         */
+        if (trainChain != null && trainChain.nodes.size() > 60) {
+            int chainSize = trainChain.nodes.size();
+            while (true) {
+                Node lastNode = trainChain.nodes.get(chainSize - 1);
+                if (lastNode.peaks.get(0) == -1) {
+                    trainChain.nodes.remove(lastNode);
+                    chainSize--;
+                } else {
+                    break;
+                }
+            }
+            if (trainChain.nodes.size() > 60) {
+                trainCat.addChain(trainChain);
+                trainChain = null;
+            } else {
+                trainChain = null;
+            }
+        } else {
+            trainChain = null;
+        }
+    }
+
+    public void addMatchData(int[] maxIdx_) {
+        Node nNode = new Node(maxIdx_);
+        matchChain.addNode(nNode);
+    }
+
+    public void newMatchChain() {
+        matchChain = new Chain("Unknown");
+    }
+    
+    public void endMatchChain() {
+        /**
+         * ending an training chain
+         */
+        if (matchChain != null && matchChain.nodes.size() > 60) {
+            int chainSize = matchChain.nodes.size();
+            while (true) {
+                Node lastNode = matchChain.nodes.get(chainSize - 1);
+                if (lastNode.peaks.get(0) == -1) {
+                    trainChain.nodes.remove(lastNode);
+                    chainSize--;
+                } else {
+                    break;
+                }
+            }
+            
+            if (matchChain.nodes.size() > 60) {
+                matchInput(matchChain);
+            } else {
+                matchChain = null;
+            }
+        } else {
+            trainChain = null;
+        }
+    }
+
+
     public void loadAndMatch() {
         try {
-            /*
-             * JFileChooser fc = new JFileChooser();
-             *
-             * if (fc.showOpenDialog(ControlPan.this) ==
-             * JFileChooser.APPROVE_OPTION) { lFile =
-             * fc.getSelectedFile(); } else { return; }
-             */
-
-            /**
-             * old version Scanner scn = new Scanner(lFile);
-             */
             FileInputStream fis = new FileInputStream(lFileName);
             InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
             bufReader = new BufferedReader(isr);
@@ -703,6 +743,7 @@ public class ControlPan implements Share {
                     System.out.println(str);
                     if (str.length() > 5) {
                         trainCat = (Category) gson.fromJson(str, Category.class);
+                        show(trainCat.chains.get(0).toArray().toString());
                     }
                 }
                 if (GUI.ON) {
@@ -961,6 +1002,10 @@ public class ControlPan implements Share {
             e.printStackTrace();
 
         }
+    }
+
+    public void show(String str) {
+        System.out.println(str);
     }
 
     class MScanner extends Thread {
