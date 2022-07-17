@@ -1,5 +1,6 @@
 package cclo;
 
+import Core.Share;
 import Core.*;
 import static cclo.ControlPan.toaster;
 import com.google.gson.Gson;
@@ -11,23 +12,17 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.text.DateFormat;
 import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Scanner;
 import javax.swing.*;
 
 public class ControlPan implements Share {
-    
-    
 
     String tFileName = "temp.txt";
     String lFileName = "lattice.txt";
@@ -41,7 +36,7 @@ public class ControlPan implements Share {
 
     Trainer trainer;
     Lattice lattice;
-    
+
     DecimalFormat df = new DecimalFormat("0.00");
     DecimalFormat twoD = new DecimalFormat("00");
     String cMatch = "None";
@@ -59,6 +54,7 @@ public class ControlPan implements Share {
     public double disp_mDist;
     Category trainCat;
     Chain trainChain, matchChain;
+    Timer recTimer;
 
     public ControlPan(Main main_) {
         pMain = main_;
@@ -130,7 +126,6 @@ public class ControlPan implements Share {
                     ((JComboBox) type).addItem(newType.getText());
                 }
             });
-            
 
             open.addActionListener(
                     new ActionListener() {
@@ -231,6 +226,9 @@ public class ControlPan implements Share {
         lattice = new Lattice("Lattice");
         trainer = new Trainer(this);
 
+        if (!GUI.ON) {
+            loadAndMatch();
+        }
     }
 
     public void debug(int no_, String str_) {
@@ -248,41 +246,6 @@ public class ControlPan implements Share {
     long[] beatTime = new long[5];
     long lastSTime = 0L, curSTime, midSTime;   // last signal time
 
-    ActionListener showListener = new ActionListener() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            showMatchResult();
-            // System.out.println("\nBeat Happen Show Result .........      ");
-            // matchTimer.setDelay(3000);
-        }
-    };
-    ActionListener stopListener = new ActionListener() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            String mString = "None";
-            cMatch = "None";
-            if (pMain.mqtt.connected) {
-                pMain.mqtt.publish(mString);
-            }
-            if (GUI.ON) {
-                ((Toaster) toaster).showToaster(mString);
-                System.out.println("\n" + mString);
-            } else {
-                System.out.println("\n" + mString);
-            }
-        }
-    };
-    ActionListener beatListener = new ActionListener() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            if (pMain.mqtt.connected) {
-                pMain.mqtt.publish("Beat!");
-            }
-            System.out.println("<拍打>");
-            System.out.flush();
-        }
-    };
-
     double distSum = 0.0;
 
     long lastSTime2 = 0L, curSTime2, midSTime2, startTime2 = 0L;   // last signal time
@@ -297,123 +260,208 @@ public class ControlPan implements Share {
     /**
      * value of peak component using DB
      */
-    double maxComp = 0.0;
+    int positiveCnt = 0, negativeCnt = 0;
 
-    public void matchBeat2(double maxComp_) {
-//        System.out.print("|");
-        curSTime2 = System.currentTimeMillis();
-        long timeDiff2 = curSTime2 - lastSTime2;
-        long eventDiff2 = curSTime2 - midSTime2;
-        midSTime2 = curSTime2;
-        lastSTime2 = curSTime2;
-        // System.out.print("\nTimeDiff: "+ timeDiff);
-        if (eventDiff2 > 1000 || timeDiff2 > 1000) {
-            /**
-             * <first sound>
-             */
-            onSeq = true;
-            startTime2 = curSTime2;
-            for (int i = 0; i < 40; i++) {
-                seq[i] = 0;
-            }
-            for (int i = 0; i < 20; i++) {
-                pk[i] = -1;
-            }
-            pCnt = 0;
-            maxComp = Math.log10(maxComp_) * 10.0;
-            System.out.println("\nNuSeq\n ");
-            // seq[0] += 2;
+    boolean active = false;
+    int bipolar = 0;
+    String strState = "silent";
+    boolean inSeq = false;
+    // state include silent b1, b2, b3, s1, s2, s3, going, error
+
+    public boolean matchBeat(boolean voiceOn) {
+        if (voiceOn) {
+            bipolar++;
+        } else {
+            bipolar--;
         }
-        if (onSeq) {
-            double curComp = Math.log10(maxComp_) * 10.0;
-            if (curComp / maxComp < 0.5) {
-                System.out.println("TooSmall ");
-                return;
+        if (bipolar > 3) {
+            bipolar = 3;
+            active = true;
+        }
+        if (bipolar < 1) {
+            bipolar = 0;
+            active = false;
+        }
+        if (active) {  // 1, voice on
+            // show2("o");
+            if (negativeCnt > 80) {
+                strState = "silent";
             }
-            if (curComp / maxComp > 2.5) {
-                System.out.println("ReStart ");
-                onSeq = true;
-                startTime2 = curSTime2;
-                for (int i = 0; i < 40; i++) {
-                    seq[i] = 0;
-                }
-                for (int i = 0; i < 20; i++) {
-                    pk[i] = -1;
-                }
-                pCnt = 0;
-                maxComp = Math.log10(maxComp_) * 10.0;
-                // System.out.println("B ");                
-            }
-            int idx = ((int) (curSTime2 - startTime2)) / 50;
-            System.out.print(idx + " ");
-            if (idx > 30) {
-                onSeq = false;
-            }
-            if (idx < 30) {
-                // System.out.print("-");
-                seq[idx]++;
-                if (idx < 5) {
-                    return;
-                }
-                pCnt = 0;
-                for (int i = 0; i <= idx; i++) {
-                    if (seq[i] > 0) {
-                        for (int j = i + 1; j <= idx; j++) {
-                            if (seq[j] > 0) {
-                                seq[i] += seq[j];
-                                seq[j] = 0;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-                for (int i = 0; i <= idx; i++) {
-                    if (seq[i] > 0) {
-                        pk[pCnt] = i;
-                        pCnt++;
-                        if (pCnt > 2) {
-                            break;
-                        }
-                    }
-                }
-
-                if (pCnt > 2) {
-                    onSeq = false;
-                    int diff_1 = pk[1] - pk[0];
-                    int diff_2 = pk[2] - pk[1];
-                    if (Math.abs(diff_1 - diff_2) > 3) {
-                        onSeq = false;
-                    } else if (diff_1 < 3 || diff_1 > 15 || diff_2 < 3 || diff_2 > 15) {
-                        onSeq = false;
+            switch (strState) {
+                case "silent":
+                    show2("\n-(" + negativeCnt + ") ");
+                    if (negativeCnt > 80) {
+                        strState = "b1";
+                        //show2(" b1 ");
                     } else {
-                        onSeq = false;
-                        System.out.println("\n" + pk[0] + " " + pk[1] + " " + pk[2]);
-                        System.out.println("-------------------------------------------- <Beat2> " + df.format(Math.random()) + "\n");
-                        if (pMain.mqtt.connected) {
-                            pMain.mqtt.publish("Beat!");
-                        }
+                        strState = "error";
+                        //show2(" error ");
                     }
-                }
+                    break;
+                case "b1":
+                    break;
+                case "s1":
+                    show2("(" + negativeCnt + ") ");
+                    if (negativeCnt < 20) {
+                        strState = "error";
+                    } else {
+                        strState = "b2";
+                    }
+                    //show2(" b2 ");
+                    break;
+                case "b2":
+                    break;
+                case "s2":
+                    show2("(" + negativeCnt + ") ");
+                    if (negativeCnt < 20) {
+                        strState = "error";
+                    } else {
+                        strState = "b3";
+                    }
+                    //show2(" b3 ");
+                    break;
+                case "b3":
+                    break;
+                case "error":
+                    break;
             }
+            positiveCnt++;
+            negativeCnt = 0;
+        } else {   // not active
+            // show2("-");
+            switch (strState) {
+                case "silent":
+                    break;
+                case "b1":
+                    show2(positiveCnt + " ");
+                    if (positiveCnt < 7 || positiveCnt > 50) {
+                        strState = "error";
+                    } else {
+                        strState = "s1";
+                    }
+                    //show2(" s1 ");
+                    break;
+                case "s1":
+                    if (negativeCnt > 80) {
+                        strState = "silent";
+                        show2(" s ");
+                    }
+                    break;
+                case "b2":
+                    show2(positiveCnt + " ");
+                    if (positiveCnt < 15 || positiveCnt > 50) {
+                        strState = "error";
+                    } else {
+                        strState = "s2";
+                    }
+                    //show2(" s2 ");
+                    break;
+                case "s2":
+                    if (negativeCnt > 80) {
+                        strState = "silent";
+                        show2(" s ");
+                    }
+                    break;
+                case "b3":
+                    show2(positiveCnt + " ");
+                    if (positiveCnt < 7 || positiveCnt > 50) {
+                        strState = "error";
+                    } else {
+                        strState = "s3";
+                    }
+                    // show2(" s3 ");
+                    show("\n-------------- Matched Type: 拍打");
+                    matchList.clear();
+                    if (pMain.mqtt.connected) {
+                        pMain.mqtt.publish("Beat!");
+                    }
+                    return true;
+
+                case "s3":
+                    if (negativeCnt > 80) {
+                        strState = "silent";
+                        show2(" silent ");
+                    }
+                    break;
+                case "error":
+                    if (negativeCnt > 80) {
+                        strState = "silent";
+                        show2(" silent ");
+                    }
+                    break;
+            }
+            negativeCnt++;
+            positiveCnt = 0;
         }
+        return false;
     }
+
+    String pResult = "unknown";
+    Queue<String> matchList = new LinkedList<>();
 
     public void matchInput(Chain chain_) {
 
-        boolean inLattice;
-        int minDist = Integer.MAX_VALUE;
-        int minId = -1;
-        int dist;
-        /**
-         * currently NDIST = 5 distance of within a node
-         */
-        int distMax = NDIST;
+        double best = 0.0;
+        double fBest = 0.0;
+        String type = "unknown";
+        String fType = "unknown";
+        int[][] inChainArray = chain_.getArray();
+        for (Category cat : lattice.cats) {
+            for (Chain lchain : cat.chains) {
+                double score = chain_.matchScore_Array(inChainArray, lchain);
+                if (score > best) {
+                    best = score;
+                    type = cat.name;
+                }
+            }
+//            double fscore = cat.matchPeaks(chain_);
+//            if (fscore > fBest) {
+//                fBest = fscore;
+//                fType = cat.name;
+//            }
+        }
+//        show("---- [Best Score: " + best + "], [Best Type: " + type + " [Best FScore: " + fBest + "], [Best FType: " + fType + "]");
+        show("---- [Best Score: " + best + "], [Best Type: " + type + "]");
+        // show("\nType: " + type + ", - Ratio: " + df.format(best) + " pResult: " + pResult);
+        if (best > 0.75) {
+            matchList.offer(type);
+            while (matchList.size() > 3) {
+                matchList.poll();
+            }
+            if (matchList.size() == 3) {
+                int cnt = 0;
+                for (String str : matchList) {
+                    if (str.equals(type)) {
+                        cnt++;
+                    }
+                }
+                if (cnt < 3) {
+                    return;
+                }
+            } else {
+                return;
+            }
+            show("\n-------------- Matched Type: " + type + " ---- Ratio: " + df.format(best));
+            if (pMain.mqtt.connected) {
+                if (type.equals("拍打")) {
+                    pMain.mqtt.publish("Beat!");
+                } else if (type.equals("咳嗽")) {
+                    pMain.mqtt.publish("Cough");
+                } else if (type.equals("打呼")) {
+                    pMain.mqtt.publish("Snore");
+                }
+            }
+        } else {
+            abVoiceCnt++;
+            // show("abVoiceCnt: " + abVoiceCnt);
+            if (abVoiceCnt > 2) {
+                abVoice = true;
+                // show("abVoice: true");
 
-        /**
-         * find <minimal distance> to <all node in lattice>
-         */
-        inLattice = false;
+            }
+            // show("\nBest Score: " + df.format(best));
+        }
+
     }
 
     public void showMatchResult() {
@@ -443,9 +491,13 @@ public class ControlPan implements Share {
         }
     }
 
-    public void addTrainData(int[] maxIdx_) {
+    public boolean addTrainData(int[] maxIdx_) {
         Node nNode = new Node(maxIdx_);
+        if (nNode.peaks[0] == -1 && trainChain.nodes.size() == 0) {
+            return false;
+        }
         trainChain.addNode(nNode);
+        return true;
     }
 
     public void newTrainChain() {
@@ -460,93 +512,97 @@ public class ControlPan implements Share {
         /**
          * ending an training chain
          */
-        if (trainChain != null && trainChain.nodes.size() > 60) {
+        if (trainChain != null && trainChain.nodes.size() > 30) {
             int chainSize = trainChain.nodes.size();
-            while (true) {
+            while (chainSize > 0) {
+                Node firstNode = trainChain.nodes.get(0);
+                if (firstNode.peaks[0] == -1) {
+                    trainChain.nodes.remove(firstNode);
+                    chainSize--;
+                } else {
+                    break;
+                }
+            }
+            while (chainSize > 0) {
                 Node lastNode = trainChain.nodes.get(chainSize - 1);
-                if (lastNode.peaks.get(0) == -1) {
+                if (lastNode.peaks[0] == -1) {
                     trainChain.nodes.remove(lastNode);
                     chainSize--;
                 } else {
                     break;
                 }
             }
-            if (trainChain.nodes.size() > 60) {
+            int chSize = trainChain.nodes.size();
+            // show("chSize: " + chSize);
+            if (chSize > 30) {
                 trainCat.addChain(trainChain);
                 trainChain = null;
             } else {
                 trainChain = null;
             }
+
         } else {
             trainChain = null;
         }
     }
 
-    public void addMatchData(int[] maxIdx_) {
+    public boolean addMatchData(int[] maxIdx_) {
         Node nNode = new Node(maxIdx_);
+        if (matchChain == null) {
+            matchChain = new Chain("Input");
+        }
+        if (nNode.peaks[0] == -1 && matchChain.nodes.size() == 0) {
+            return false;
+        }
         matchChain.addNode(nNode);
+        return true;
     }
 
     public void newMatchChain() {
         matchChain = new Chain("Unknown");
     }
-    
+
     public void endMatchChain() {
         /**
          * ending an training chain
          */
-        if (matchChain != null && matchChain.nodes.size() > 60) {
+        if (matchChain != null && matchChain.nodes.size() > 30) {
             int chainSize = matchChain.nodes.size();
-            while (true) {
-                Node lastNode = matchChain.nodes.get(chainSize - 1);
-                if (lastNode.peaks.get(0) == -1) {
-                    trainChain.nodes.remove(lastNode);
+            while (chainSize > 0) {
+                Node firstNode = matchChain.nodes.get(0);
+                if (firstNode.peaks[0] == -1) {
+                    matchChain.nodes.remove(firstNode);
                     chainSize--;
                 } else {
                     break;
                 }
             }
-            
-            if (matchChain.nodes.size() > 60) {
-                matchInput(matchChain);
-            } else {
-                matchChain = null;
-            }
-        } else {
-            trainChain = null;
-        }
-    }
+            chainSize = matchChain.nodes.size();
 
+            while (chainSize > 0) {
+                Node lastNode = matchChain.nodes.get(chainSize - 1);
+                if (lastNode.peaks[0] == -1) {
+                    matchChain.nodes.remove(lastNode);
+                    chainSize--;
+                } else {
+                    break;
+                }
+            }
+
+            int chSize = matchChain.nodes.size();
+            show2("chSize: " + chSize);
+            if (chSize > 25) {
+                matchInput(matchChain);
+            }
+            matchChain = null;
+        }
+        matchChain = null;
+    }
 
     public void loadAndMatch() {
         try {
-            FileInputStream fis = new FileInputStream(lFileName);
-            InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
-            bufReader = new BufferedReader(isr);
-            bufReader.read();
-
-            Scanner scn = new Scanner(bufReader);
-
-            lattice = new Lattice("Snore");
-            /**
-             * scanning nodeList type
-             */
-            String type = scn.next();
-            // System.out.println("type = " + type);
-            if (!type.equals("nodeList")) {
-                // System.out.println("nodeList tag error!");
-                return;
-            }
-            /**
-             * scanning node number
-             */
-            int nodeNo = scn.nextInt();
-            System.out.println("Lattice Node No: " + nodeNo);
-            /**
-             * scanning all nodes
-             */
-            latState = STATE.READY;
-            System.out.println("辨識檔已經載入 .... ");
+            doLoadSOM();
+            lattice.showDetail();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -575,6 +631,10 @@ public class ControlPan implements Share {
             }
 
             Category cat = new Category("Train");
+            newTrainChain();
+
+            /*
+            // the following is for testing
             Chain tChain = new Chain("test");
             int[] nData = {1, 2, 3, 4, 5};
             Node node = new Node(nData);
@@ -585,9 +645,6 @@ public class ControlPan implements Share {
             Gson gson = new Gson();
             String json = gson.toJson(cat);
             bufWriter.write(json + "\n");
-
-            /**
-             * the following is for testing
              */
         } catch (Exception e) {
             e.printStackTrace();
@@ -640,12 +697,6 @@ public class ControlPan implements Share {
                 fileWriter.close();
             }
 
-            /**
-             * old file writer
-             *
-             * fileWriter = new FileWriter(tFileName, false); bufWriter = new
-             * BufferedWriter(fileWriter);
-             */
             FileOutputStream fos = new FileOutputStream(tFileName, false);
             fos.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
             OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
@@ -688,12 +739,13 @@ public class ControlPan implements Share {
     }
 
     public void doSave() {
-        /**
-         * doSave()
-         */
         try {
             if (tFileState == STATE.OPEN) {
                 tFileState = STATE.CLOSE;
+                Gson gson = new Gson();
+                String json = gson.toJson(trainCat);
+                bufWriter.write(json + "\n");
+
                 if (bufWriter != null) {
                     bufWriter.flush();
                     bufWriter.close();
@@ -729,21 +781,41 @@ public class ControlPan implements Share {
                 } else {
                     System.out.println("載入訓練樣本檔 .... ");
                 }
-                FileInputStream fis = new FileInputStream(tFileName);
+
+                FileInputStream fis;
+                if (GUI.ON) {
+                    String basePath = new File("").getAbsolutePath();
+                    System.out.println("\nbasePath: " + basePath);
+
+                    JFileChooser fc = new JFileChooser(basePath);
+
+                    if (fc.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                        tFile = fc.getSelectedFile();
+                        fis = new FileInputStream(tFile);
+                    } else {
+                        return;
+                    }
+                } else {
+                    fis = new FileInputStream(tFileName);
+                }
                 InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
                 bufReader = new BufferedReader(isr);
 
                 Scanner scn = new Scanner(bufReader);
 
                 Gson gson = new Gson();
-                Category trainCat = new Category("Train");
+                trainCat = new Category("Train");
                 System.out.println();
                 while (scn.hasNext()) {
                     String str = scn.nextLine();
-                    System.out.println(str);
-                    if (str.length() > 5) {
-                        trainCat = (Category) gson.fromJson(str, Category.class);
-                        show(trainCat.chains.get(0).toArray().toString());
+                    show(str);
+
+                    if (str.length() > 10) {
+                        trainCat = (Category) gson.fromJson(str, Category.class
+                        );
+                        show(
+                                "--- trainCat loaded");
+                        trainCat.showRouph();
                     }
                 }
                 if (GUI.ON) {
@@ -769,9 +841,8 @@ public class ControlPan implements Share {
          * doTrain();
          */
         try {
-            if (true) {
-
-                //trainer.setTraining(lattice, inputNodes, ControlPan.this);
+            if (trainCat != null) {
+                trainer.setTraining(lattice, trainCat, ControlPan.this);
                 trainer.start();
                 if (GUI.ON) {
                     ((Toaster) toaster).showToaster("訓練完畢");
@@ -818,145 +889,67 @@ public class ControlPan implements Share {
          * when <Match Beat> only
          */
         latState = STATE.MATCH;
+        // enableABRec(true);
     }
 
     public void doLoadSOM() {
         /**
          * doLoadSOM();
          */
-        if (lFileState == STATE.CLOSE) {
-            try {
-                /*
-                                 * JFileChooser fc = new JFileChooser();
-                                 *
-                                 * if (fc.showOpenDialog(ControlPan.this) ==
-                                 * JFileChooser.APPROVE_OPTION) { lFile =
-                                 * fc.getSelectedFile(); } else { return; }
-                 */
+        try {
 
-                /**
-                 * old version Scanner scn = new Scanner(lFile);
-                 */
-                FileInputStream fis = new FileInputStream(lFileName);
-                InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
-                bufReader = new BufferedReader(isr);
-                bufReader.read();
-
-                Scanner scn = new Scanner(bufReader);
-
-                lattice = new Lattice("What?");
-                /**
-                 * scanning nodeList type
-                 */
-                String type = scn.next();
-                // pMain.toaster.showToaster("type = " + type);
-                if (!type.equals("nodeList")) {
-                    if (GUI.ON) {
-                        ((Toaster) toaster).showToaster("nodeList tag error! ..... ");
-                    } else {
-                        System.out.println("nodeList tag error! .... ");
-                    }
-                    return;
-                }
-                /**
-                 * scanning node number
-                 */
-                int nodeNo = scn.nextInt();
-                System.out.println("Lattice Node No: " + nodeNo);
-                /**
-                 * scanning all nodes
-                 */
-                /**
-                 * scan idSet
-                 */
-
-                /**
-                 * scan and checking type
-                 */
-                type = scn.next();
-                if (!type.equals("idSet")) {
-                    if (GUI.ON) {
-                        ((Toaster) toaster).showToaster("idSet tag error! ..... ");
-                    } else {
-                        System.out.println("idSet tag error! .... ");
-                    }
-                    return;
-                }
-                /**
-                 * scan all the node Id
-                 */
-                for (int i = 0; i < nodeNo; i++) {
-                    // lattice.idSet.add(scn.nextInt());
-                }
-                // System.out.println("idSet : " + lattice.idSet.toString());
-
-                /**
-                 * scann and check type
-                 */
-                type = scn.next();
-                if (!type.equals("categories")) {
-                    if (GUI.ON) {
-                        ((Toaster) toaster).showToaster("categories tag error! ..... ");
-                    } else {
-                        System.out.println("categories tag error! .... ");
-                    }
-                    return;
-                }
-                /**
-                 * scanning no of categories
-                 */
-                int catNo = scn.nextInt();
-                System.out.println("Category No: " + catNo);
-
-                /**
-                 * scan all categories
-                 */
-                for (int i = 0; i < catNo; i++) {
-                    /**
-                     * there is another category
-                     */
-                    Category newCat = new Category("What");
-                    newCat.name = scn.next();
-                    System.out.print("Category: " + newCat.name);
-
-                    int idNo = scn.nextInt();
-                    for (int j = 0; j < idNo; j++) {
-                    }
-
-                    // lattice.catList.add(newCat);
-                }
-
-                /**
-                 * scanning nameSet
-                 */
-                type = scn.next();
-                if (!type.equals("nameSet")) {
-                    if (GUI.ON) {
-                        ((Toaster) toaster).showToaster("nameSet tag error! ..... ");
-                    } else {
-                        System.out.println("nameSet tag error! .... ");
-                    }
-                    return;
-                }
-                for (int i = 0; i < catNo; i++) {
-                    // lattice.nameSet.add(scn.next());
-                }
-
-                latState = STATE.READY;
-                if (GUI.ON) {
-                    ((Toaster) toaster).showToaster("辨識檔已經載入 ..... ");
-                } else {
-                    System.out.println("辨識檔已經載入 .... ");
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        } else {
+            FileInputStream fis;
             if (GUI.ON) {
-                ((Toaster) toaster).showToaster("辨識檔已經開啟 ..... ");
+                String basePath = new File("").getAbsolutePath();
+                System.out.println("\nbasePath: " + basePath);
+
+                JFileChooser fc = new JFileChooser(basePath);
+
+                if (fc.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    lFile = fc.getSelectedFile();
+                    fis = new FileInputStream(lFile);
+                } else {
+                    return;
+                }
             } else {
-                System.out.println("辨識檔已經開啟 .... ");
+                fis = new FileInputStream(lFileName);
             }
+
+            InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
+            bufReader = new BufferedReader(isr);
+            bufReader.read();
+
+            Scanner scn = new Scanner(bufReader);
+
+            Gson gson = new Gson();
+            lattice = new Lattice("lattice");
+            show("");
+            while (scn.hasNext()) {
+                String str = scn.nextLine();
+                show(str);
+
+                if (str.length() > 10) {
+                    lattice = (Lattice) gson.fromJson(str, Lattice.class
+                    );
+                    show(
+                            "--- Lattice loaded");
+                    lattice.showDetail();
+                }
+            }
+
+            latState = STATE.READY;
+            if (GUI.ON) {
+                ((Toaster) toaster).showToaster("辨識檔已經載入 ..... ");
+            } else {
+                System.out.println("辨識檔已經載入 .... ");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (GUI.ON) {
+            ((Toaster) toaster).showToaster("辨識檔已經開啟 ..... ");
+        } else {
+            System.out.println("辨識檔已經開啟 .... ");
         }
     }
 
@@ -965,47 +958,72 @@ public class ControlPan implements Share {
          * doSaveSOM();
          */
         try {
-            if (lFileState == STATE.CLOSE) {
+            FileOutputStream fos = new FileOutputStream(lFileName, false);
+            fos.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+            OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
+            bufWriter = new BufferedWriter(osw);
 
-                /**
-                 * fileWriter = new FileWriter(lFileName, false); // Always wrap
-                 * FileWriter in BufferedWriter. bufWriter = new
-                 * BufferedWriter(fileWriter);
-                 */
-                FileOutputStream fos = new FileOutputStream(lFileName, false);
-                fos.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
-                OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
-                bufWriter = new BufferedWriter(osw);
+            /**
+             * writing nodeList data structure
+             */
+            Gson gson = new Gson();
+            String json = gson.toJson(lattice, Lattice.class
+            );
+            bufWriter.write(json);
 
-                lFileState = STATE.OPEN;
-                /**
-                 * writing nodeList data structure
-                 */
-                bufWriter.write("nodeList\n");
-                // bufWriter.write(lattice.nodeList.size() + "\n\n");
-                for (;;) {
-                    // bufWriter.write(nd.id + " ");
-                    for (int i = 0; i < PATT_SIZE; i++) {
-                        // bufWriter.write(nd.get(i) + " ");
-                    }
-                    bufWriter.write("\n\n");
-                }
-
+            if (GUI.ON) {
+                ((Toaster) toaster).showToaster("File Saved ..... ");
             } else {
-                if (GUI.ON) {
-                    ((Toaster) toaster).showToaster("File not in CLOSE state ..... ");
-                } else {
-                    System.out.println("File not in CLOSE statef .... ");
-                }
+                System.out.println("File not in CLOSE statef .... ");
             }
+
+            bufWriter.close();
+
+            osw.close();
+
+            fos.close();
+
+            lattice.showDetail();
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
 
+    public boolean abVoice = false;
+    int abVoiceCnt = 0;
+
+    public void enableABRec(boolean yes) {
+        if (yes) {
+            int recInterval = 1000 * 30;
+            recTimer = new Timer(recInterval, new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (abVoice) {
+                        pMain.mic.ccloSaveRecording();
+                        abVoice = false;
+                        abVoiceCnt = 0;
+                    } else {
+                        pMain.mic.ccloDropRecording();
+                        abVoice = false;
+                        abVoiceCnt = 0;
+                    }
+                }
+            });
+            pMain.mic.ccloStartRecording();
+            recTimer.start();
+        } else {
+            recTimer.stop();
+            pMain.mic.ccloStopRecording();
         }
     }
 
     public void show(String str) {
-        System.out.println(str);
+        System.out.println("\n" + str);
+    }
+
+    public void show2(String str) {
+        System.out.print(str);
+
     }
 
     class MScanner extends Thread {
