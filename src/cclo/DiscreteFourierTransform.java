@@ -511,13 +511,16 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
         }
     }
 
-    //  --- getBaby 
+    //  --- --- --- --- --- --- --- --- ---                      --- --- --- --- --- --- --- --- --- --- 
+    //  --- --- --- --- --- --- --- --- ---     getBaby     --- --- --- --- --- --- --- --- --- ---  
+    //  --- --- --- --- --- --- --- --- ---                      --- --- --- --- --- --- --- --- --- --- 
     //  --- class variable
     Main pMain;
 
     //  --- utilities
     DecimalFormat df = new DecimalFormat("0000000000000.00");
 
+    //  --- --- --- --- --- ---                 voice signal               --- --- --- --- --- --- 
     //  --- short term spectrum
     double shortVec[] = new double[FFTNo];
     //  --- long term spectrum
@@ -530,24 +533,37 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
     double shortSum, longSum;
     //  --- ratio of shortSum/longSum
     double slratio;
+    //  --- convolution of the spectrum
+    double conv[] = new double[FFTNo];
+
+    //  --- --- --- --- --- ---           significant frequency          --- --- --- --- --- --- 
     //  --- most significant frequencies PATT_SIZE ?= 6 
     int maxIndex[] = new int[PATT_SIZE];
     double maxCompo[] = new double[PATT_SIZE];
-    //  ... current system time, last event time, their difference
+
+    //  --- --- --- --- --- ---         timing control          --- --- --- --- --- --- 
+    //  --- current system time, last event time, their difference
     long curSTime, lastSTime, timeDiff;
 
-    int[] emptyArray = new int[PATT_SIZE];
+    //  --- array representing silent pattern
+    int[] silentArray = {-1, 0, 0, 0, 0, 0};
     int voiceState = 0;
-    //  ... queue to keep recent convolution spectrum
-    Queue<double[]> convList = new LinkedList<>();
-    //  ... sum of convolution spectrums in convList
-    double[] convSum = new double[FFTNo];
-    //  ... status variable
-    //  ... 
+
+    //  ... control variable
+    boolean beginMode = true;
     //  ... voice Active?  default = falses
     boolean voiceActive = false;
 
     public void getBaby(double voice[]) {
+
+        //  --- --- --- --- ---         begin Mode      --- --- --- --- --- 
+        if (beginMode) {
+            for (int i = 0; i < FFTNo; i++) {
+                conv[i] = 0.0;
+            }
+        }
+
+        //  --- --- --- --- ---         Initialization      --- --- --- --- ---     
         // voice is active? default: No
         voiceActive = false;
         //  --- most significant freq initialized -1
@@ -593,16 +609,12 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
         if (shortSumInDB < 50.0 || slratio < 1) {
             //  ... silent mode
             voiceState = 0;
-            //  ... clear convolution list
-            convList.clear();
-            // specList.clear();
+            //  --- no voice return
             return;
         }
-        
-        
-        //  ... active mode
+
+        //  --- voice mode --- --- --- --- --- --- --- --- --- --- --- --- --- 
         voiceState++;
-        
         //  --- compute current convolution
         double[] conv = new double[FFTNo]; // moving average of 3
         double movingSum = db[0] + db[1] + db[2];
@@ -613,167 +625,167 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
             conv[i] = movingSum / 3.0;
         }
         //  --- 1. maintain list of convolution.  2. compute sum
-        convList.offer(conv);
-        if (convList.size() > 5) {
-            // show2("5");
-            voiceActive = true;
-            lastSTime = curSTime;
+        //  -del  convList.offer(conv);
 
-            convList.poll();
-            for (int i = 0; i < FFTNo; i++) {
-                convSum[i] = 0.0;
-            }
-            for (double[] arr : convList) {
-                for (int i = 0; i < FFTNo; i++) {
-                    convSum[i] += arr[i];
-                }
-            }
-            for (int i = 1; i < FFTNo - 1; i++) {
-                if (convSum[i] > convSum[i - 1] && convSum[i] > convSum[i + 1]) {
-                    if (convSum[i] <= maxCompo[0]) {
-                        continue;
-                    } else {
-                        maxCompo[0] = convSum[i];
-                        maxIndex[0] = i;
-                        for (int j = 1; j < PATT_SIZE; j++) {
-                            if (convSum[i] > maxCompo[j]) {
-                                maxCompo[j - 1] = maxCompo[j];
-                                maxIndex[j - 1] = maxIndex[j];
-                                maxCompo[j] = convSum[i];
-                                maxIndex[j] = i;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            for (int i = 1; i < FFTNo - 1; i++) {
-                if (db[i] > db[i - 1] && db[i] > db[i + 1]) {
-                    if (db[i] <= maxCompo[0]) {
-                        continue;
-                    } else {
-                        maxCompo[0] = db[i];
-                        maxIndex[0] = i;
-                        for (int j = 1; j < PATT_SIZE; j++) {
-                            if (db[i] > maxCompo[j]) {
-                                maxCompo[j - 1] = maxCompo[j];
-                                maxIndex[j - 1] = maxIndex[j];
-                                maxCompo[j] = db[i];
-                                maxIndex[j] = i;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        boolean isBeat = false;
-        if (maxIndex[PATT_SIZE - 1] == 1 || maxIndex[PATT_SIZE - 2] == 1) {
-            isBeat = true;
-        }
-
-        // compute moving sum
-        if (GUI.ON) {
-            if (voiceActive) {
-                // significant voice
-                ((HistoGram) pMain.histogram).setChar(true);
-            } else {
-                ((HistoGram) pMain.histogram).setChar(false);
-            }
-        }
-
-        // 0-1 spectrum array
-        int hist[] = new int[FFTNo];
         for (int i = 0; i < FFTNo; i++) {
-            hist[i] = 0;
-        }
+            if (isPeak(i)) {
 
-        if (convList.size() >= 5) {  //  only when voice on
-            // 0-1 histogray with six 1's
-            for (int i = 0; i < PATT_SIZE; i++) {
-                if (maxIndex[i] != -1) {
-                    hist[maxIndex[i]] = 1;
-                }
             }
-            if (GUI.ON) {
-                ((TraceFrame) pMain.traceFrame).pInsert(hist);
-                for (int i = 0; i < FFTNo; i++) {
-                    if (hist[i] > 0) {
-                        db[i] = 50.0;
-                    } else {
-                        db[i] = 0.0;
+
+            if (sumConv[i] > sumConv[i - 1] && sumConv[i] > sumConv[i + 1]) {
+                if (sumConv[i] <= maxCompo[0]) {
+                    continue;
+                } else {
+                    maxCompo[0] = sumConv[i];
+                    maxIndex[0] = i;
+                    for (int j = 1; j < PATT_SIZE; j++) {
+                        if (sumConv[i] > maxCompo[j]) {
+                            maxCompo[j - 1] = maxCompo[j];
+                            maxIndex[j - 1] = maxIndex[j];
+                            maxCompo[j] = sumConv[i];
+                            maxIndex[j] = i;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    for (int i = 1; i < FFTNo - 1; i++) {
+                        if (db[i] > db[i - 1] && db[i] > db[i + 1]) {
+                            if (db[i] <= maxCompo[0]) {
+                                continue;
+                            } else {
+                                maxCompo[0] = db[i];
+                                maxIndex[0] = i;
+                                for (int j = 1; j < PATT_SIZE; j++) {
+                                    if (db[i] > maxCompo[j]) {
+                                        maxCompo[j - 1] = maxCompo[j];
+                                        maxIndex[j - 1] = maxIndex[j];
+                                        maxCompo[j] = db[i];
+                                        maxIndex[j] = i;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                ((FreqSpectrum) pMain.spectrumPan).updateSpec(db);
+
+                boolean isBeat = false;
+                if (maxIndex[PATT_SIZE - 1] == 1 || maxIndex[PATT_SIZE - 2] == 1) {
+                    isBeat = true;
+                }
+
+                // compute moving sum
+                if (GUI.ON) {
+                    if (voiceActive) {
+                        // significant voice
+                        ((HistoGram) pMain.histogram).setChar(true);
+                    } else {
+                        ((HistoGram) pMain.histogram).setChar(false);
+                    }
+                }
+
+                if (convList.size() >= 5) {  //  only when voice on
+                    // 0-1 histogray with six 1's
+                    for (int i = 0; i < PATT_SIZE; i++) {
+                        if (maxIndex[i] != -1) {
+                            hist[maxIndex[i]] = 1;
+                        }
+                    }
+                    if (GUI.ON) {
+                        ((TraceFrame) pMain.traceFrame).pInsert(hist);
+                        for (int i = 0; i < FFTNo; i++) {
+                            if (hist[i] > 0) {
+                                db[i] = 50.0;
+                            } else {
+                                db[i] = 0.0;
+                            }
+                        }
+                        ((FreqSpectrum) pMain.spectrumPan).updateSpec(db);
+                    }
+                }
+
+                if (convList.size() > 0) {// && isBeat) {
+                    isBeat = pMain.controlPan.matchBeat(true);
+                } else {
+                    isBeat = pMain.controlPan.matchBeat(false);
+                }
+
+                if (isBeat) {
+                    return;
+                }
+                try {
+                    if (timeDiff <= 600L && voiceActive) {
+                        // in the same sequence
+                        if (pMain.controlPan.tFileState == STATE.RECORDING) {
+                            if (pMain.controlPan.addTrainData(maxIndex)) {
+                                // show2("a");
+                            } else {
+                            }
+                        } else if (pMain.controlPan.latState == STATE.MATCH) {
+                            if (pMain.controlPan.addMatchData(maxIndex)) {
+                                // show2("a");
+                            }
+                        }
+                    } else if (timeDiff <= 600L && !voiceActive) {
+                        if (pMain.controlPan.tFileState == STATE.RECORDING) {
+                            if (pMain.controlPan.addTrainData(silentArray)) {
+                                // show2("-");
+                            }
+                        } else if (pMain.controlPan.latState == STATE.MATCH) {
+                            if (pMain.controlPan.addMatchData(silentArray)) {
+                                // show2("-");
+                            }
+                        }
+                    } else if (timeDiff > 600L && voiceActive) {
+                        // show("");
+                        if (pMain.controlPan.tFileState == STATE.RECORDING) {
+                            pMain.controlPan.endTrainChain();
+                            pMain.controlPan.newTrainChain();
+                            if (pMain.controlPan.addTrainData(maxIndex)) {
+                                // show("a");
+                            }
+                        } else if (pMain.controlPan.latState == STATE.MATCH) {
+                            pMain.controlPan.endMatchChain();
+                            pMain.controlPan.newMatchChain();
+                            if (pMain.controlPan.addMatchData(maxIndex)) {
+                                // show("a");
+                            }
+                        }
+                    } else {
+                        if (pMain.controlPan.tFileState == STATE.RECORDING) {
+                            pMain.controlPan.endTrainChain();
+                        } else if (pMain.controlPan.latState == STATE.MATCH) {
+                            pMain.controlPan.endMatchChain();
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                if (DEBUG) {
+                    // System.out.print(".");
+                }
             }
         }
+    }
 
-        if (convList.size() > 0) {// && isBeat) {
-            isBeat = pMain.controlPan.matchBeat(true);
+    public boolean isPeak(int x) {
+        int left, right;
+        if ((x - 10) < 0) {
+            left = 0;
         } else {
-            isBeat = pMain.controlPan.matchBeat(false);
+            left = x - 10;
         }
-
-        if (isBeat) {
-            return;
+        if ((x + 11) > FFTNo) {
+            right = FFTNo;
+        } else {
+            right = x + 11;
         }
-        try {
-            if (timeDiff <= 600L && voiceActive) {
-                // in the same sequence
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    if (pMain.controlPan.addTrainData(maxIndex)) {
-                        // show2("a");
-                    } else {
-                    }
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    if (pMain.controlPan.addMatchData(maxIndex)) {
-                        // show2("a");
-                    }
-                }
-            } else if (timeDiff <= 600L && !voiceActive) {
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    emptyArray[0] = -1;
-                    if (pMain.controlPan.addTrainData(emptyArray)) {
-                        // show2("-");
-                    }
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    emptyArray[0] = -1;
-                    if (pMain.controlPan.addMatchData(emptyArray)) {
-                        // show2("-");
-                    }
-                }
-            } else if (timeDiff > 600L && voiceActive) {
-                // show("");
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    pMain.controlPan.endTrainChain();
-                    pMain.controlPan.newTrainChain();
-                    if (pMain.controlPan.addTrainData(maxIndex)) {
-                        // show("a");
-                    }
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    pMain.controlPan.endMatchChain();
-                    pMain.controlPan.newMatchChain();
-                    if (pMain.controlPan.addMatchData(maxIndex)) {
-                        // show("a");
-                    }
-                }
-            } else {
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    pMain.controlPan.endTrainChain();
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    pMain.controlPan.endMatchChain();
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+        for (int i=left; i<right; i++) {
+            if (conv[i] > conv[x]) return false;
         }
-        if (DEBUG) {
-            // System.out.print(".");
-        }
+        return true;
     }
 
     public void show(String str) {
