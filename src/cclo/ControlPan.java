@@ -4,6 +4,7 @@ import Core.Share;
 import Core.*;
 import static cclo.ControlPan.toaster;
 import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -11,12 +12,13 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.UnsupportedEncodingException;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Scanner;
@@ -31,17 +33,13 @@ public class ControlPan implements Share {
     BufferedReader bufReader;
     BufferedWriter bufWriter;
     STATE tFileState = STATE.CLOSE;
-    STATE lFileState = STATE.CLOSE;
     public STATE latState = STATE.EMPTY;
 
     Trainer trainer;
     Lattice lattice;
 
     DecimalFormat df = new DecimalFormat("0.00");
-    DecimalFormat twoD = new DecimalFormat("00");
     String cMatch = "None";
-    ArrayList<String> typeList;
-    double avgMinDist = 0.0;
     Main pMain;
     public String cType = "拍打";
     public static Object type, cpan, toaster;
@@ -64,8 +62,7 @@ public class ControlPan implements Share {
              */
             Toaster loc_toaster = new Toaster();
             toaster = loc_toaster;
-            JPanel btPanel;
-            String[] typeStr = {"打呼", "咳嗽", "呼吸", "呻吟", "拍打"};
+            String[] typeStr = {"張三", "李四"};
             final JButton open = new JButton("開樣本檔");
             final JButton record = new JButton("錄製樣本");
             final JButton clear = new JButton("清空樣本");
@@ -238,26 +235,6 @@ public class ControlPan implements Share {
     }
 
     /**
-     * For matchBeat Only
-     *
-     * @param iv
-     */
-    int beatState = 0;
-    long[] beatTime = new long[5];
-    long lastSTime = 0L, curSTime, midSTime;   // last signal time
-
-    double distSum = 0.0;
-
-    long lastSTime2 = 0L, curSTime2, midSTime2, startTime2 = 0L;   // last signal time
-    /**
-     * seq interval 50 msec; signal count of seq[i];
-     */
-    int seq[] = new int[40];
-    int pk[] = new int[20];
-    int pCnt = 0;
-    boolean onSeq = false;
-
-    /**
      * value of peak component using DB
      */
     int positiveCnt = 0, negativeCnt = 0;
@@ -265,7 +242,6 @@ public class ControlPan implements Share {
     boolean active = false;
     int bipolar = 0;
     String strState = "silent";
-    boolean inSeq = false;
     // state include silent b1, b2, b3, s1, s2, s3, going, error
 
     public boolean matchBeat(boolean voiceOn) {
@@ -396,15 +372,12 @@ public class ControlPan implements Share {
         return false;
     }
 
-    String pResult = "unknown";
     Queue<String> matchList = new LinkedList<>();
 
     public void matchInput(Chain chain_) {
 
         double best = 0.0;
-        double fBest = 0.0;
         String type = "unknown";
-        String fType = "unknown";
         int[][] inChainArray = chain_.getArray();
         for (Category cat : lattice.cats) {
             for (Chain lchain : cat.chains) {
@@ -465,7 +438,6 @@ public class ControlPan implements Share {
     }
 
     public void showMatchResult() {
-        long cTime = System.currentTimeMillis();
         // ------ for all event, count event type
         int maxScore = -1;
         String mString = "";
@@ -473,7 +445,7 @@ public class ControlPan implements Share {
         if (maxScore > 12) {
             if (DEBUG) {
             }
-            if (cMatch == mString) {
+            if (cMatch.equals(mString)) {
             } else {
                 if (pMain.mqtt.connected) {
                 }
@@ -493,7 +465,7 @@ public class ControlPan implements Share {
 
     public boolean addTrainData(int[] maxIdx_) {
         Node nNode = new Node(maxIdx_);
-        if (nNode.peaks[0] == -1 && trainChain.nodes.size() == 0) {
+        if (nNode.peaks[0] == -1 && trainChain.nodes.isEmpty()) {
             return false;
         }
         trainChain.addNode(nNode);
@@ -551,7 +523,7 @@ public class ControlPan implements Share {
         if (matchChain == null) {
             matchChain = new Chain("Input");
         }
-        if (nNode.peaks[0] == -1 && matchChain.nodes.size() == 0) {
+        if (nNode.peaks[0] == -1 && matchChain.nodes.isEmpty()) {
             return false;
         }
         matchChain.addNode(nNode);
@@ -604,7 +576,6 @@ public class ControlPan implements Share {
             doLoadSOM();
             lattice.showDetail();
         } catch (Exception e) {
-            e.printStackTrace();
         }
         latState = STATE.MATCH;
         System.out.println("Now Matching .... ");
@@ -630,24 +601,9 @@ public class ControlPan implements Share {
                 System.out.println("訓練樣本檔已經打開 .... ");
             }
 
-            Category cat = new Category("Train");
             newTrainChain();
 
-            /*
-            // the following is for testing
-            Chain tChain = new Chain("test");
-            int[] nData = {1, 2, 3, 4, 5};
-            Node node = new Node(nData);
-            tChain.addNode(node);
-            tChain.addNode(node);
-            cat.addChain(tChain);
-
-            Gson gson = new Gson();
-            String json = gson.toJson(cat);
-            bufWriter.write(json + "\n");
-             */
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (FileNotFoundException | UnsupportedEncodingException e) {
         }
     }
 
@@ -672,7 +628,6 @@ public class ControlPan implements Share {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -707,15 +662,12 @@ public class ControlPan implements Share {
                 System.out.println("樣本檔已經清 .... ");
             }
 
-        } catch (Exception e) {
-            e.printStackTrace();//exception handling left as an exercise for the reader
+        } catch (IOException e) {
         }
     }
 
     public void doStop() {
-        /**
-         * doStop();
-         */
+
         try {
             if (tFileState == STATE.RECORDING) {
                 tFileState = STATE.OPEN;
@@ -734,7 +686,6 @@ public class ControlPan implements Share {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();//exception handling left as an exercise for the reader
         }
     }
 
@@ -765,15 +716,12 @@ public class ControlPan implements Share {
                     System.out.println("樣本檔並未開啟 .... ");
                 }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (IOException e) {
         }
     }
 
     public void doLoad() {
-        /**
-         * doLoad()
-         */
+
         try {
             if (tFileState == STATE.CLOSE) {
                 if (GUI.ON) {
@@ -813,8 +761,7 @@ public class ControlPan implements Share {
                     if (str.length() > 10) {
                         trainCat = (Category) gson.fromJson(str, Category.class
                         );
-                        show(
-                                "--- trainCat loaded");
+                        show("--- trainCat loaded");
                         trainCat.showRouph();
                     }
                 }
@@ -831,15 +778,11 @@ public class ControlPan implements Share {
                     System.out.println("訓練樣本檔未被關閉 .... ");
                 }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (JsonSyntaxException | HeadlessException | IOException e) {
         }
     }
 
     public void doTrain() {
-        /**
-         * doTrain();
-         */
         try {
             if (trainCat != null) {
                 trainer.setTraining(lattice, trainCat, ControlPan.this);
@@ -858,7 +801,6 @@ public class ControlPan implements Share {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -883,19 +825,14 @@ public class ControlPan implements Share {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
         }
-        /**
-         * when <Match Beat> only
-         */
+
         latState = STATE.MATCH;
         // enableABRec(true);
     }
 
     public void doLoadSOM() {
-        /**
-         * doLoadSOM();
-         */
+
         try {
 
             FileInputStream fis;
@@ -943,8 +880,7 @@ public class ControlPan implements Share {
             } else {
                 System.out.println("辨識檔已經載入 .... ");
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (JsonSyntaxException | HeadlessException | IOException e) {
         }
         if (GUI.ON) {
             ((Toaster) toaster).showToaster("辨識檔已經開啟 ..... ");
@@ -984,8 +920,7 @@ public class ControlPan implements Share {
             fos.close();
 
             lattice.showDetail();
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (IOException e) {
         }
     }
 
@@ -1028,6 +963,7 @@ public class ControlPan implements Share {
 
     class MScanner extends Thread {
 
+        @Override
         public void run() {
             Scanner scan = new Scanner(System.in);
             while (true) {
@@ -1081,23 +1017,7 @@ public class ControlPan implements Share {
                     case "exit":
                         System.exit(0);
                         break;
-                    case "getActTH":
-                        /**
-                         * get the threshold to determine an important pattern
-                         */
-                        System.out.println("actTH = " + df.format(pMain.dff.actTH));
-                        break;
-                    case "sa":
-                        /**
-                         * set the threshold to determine an important pattern
-                         */
-                        pMain.dff.actTH = scan.nextDouble();
-                        System.out.println("actTH = " + df.format(pMain.dff.actTH));
-                        break;
                     case "showMsg":
-                        /**
-                         * show message in every 2 second
-                         */
                         pMain.bShowMessage = true;
                         break;
                     case "noShowMsg":
