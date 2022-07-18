@@ -542,9 +542,7 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
     double hist[] = new double[FFTNo];
 
     //  --- --- --- --- --- ---         timing control          --- --- --- --- --- --- 
-    //  --- current system time, last event time, their difference
-    long curSTime, lastSTime, timeDiff;
-
+    int voiceTime = 0, silentTime = 0;
     //  --- array representing silent pattern
     int[] silentArray = {-1, 0, 0, 0, 0, 0};
     int voiceState = 0;
@@ -555,8 +553,6 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
     //  ... voice Active?  default = falses
     boolean voiceActive = false;
     //  --- peak accumulation period 25*0.01sec = 0.25 sec
-    int duration = 25;
-    int stepPeak = 0;
 
     public void getBaby(double voice[]) {
 
@@ -613,19 +609,21 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
             ((MsgPan) Main.msgPan).setMsg(1, "" + df.format(shortSumInDB));
         }
 
-        //  --- track event duration
-        curSTime = System.currentTimeMillis();
-        timeDiff = curSTime - lastSTime;
-
         if (shortSumInDB < 40.0 || slratio < 0.99) {
             //  ... silent mode
-            voiceState = 0;
-            //  --- no voice return
+            silentTime++;
+            if (silentTime > 10) {
+                voiceTime = 0;
+            }
+            //  --- no voice and return
             return;
         }
 
         //  --- voice mode --- --- --- --- --- --- --- --- --- --- --- --- --- 
-        voiceState++;
+        voiceTime++;
+        if (voiceTime > 10) {
+            silentTime = 0;
+        }
         //  --- compute current convolution
         double movingSum = db[0] + db[1] + db[2];
         conv[1] = movingSum / 3.0;
@@ -703,55 +701,23 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
             ((TraceFrame) Main.traceFrame).pInsert(hist);
             ((FreqSpectrum) Main.spectrumPan).updateSpec(hist);
         }
+        //  --- end showing peaks and histogram
 
-      
-        try {
-            if (timeDiff <= 600L && voiceActive) {
-                // in the same sequence
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    if (pMain.controlPan.addTrainData(maxIndex)) {
-                        // show2("a");
-                    } else {
-                    }
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    if (pMain.controlPan.addMatchData(maxIndex)) {
-                        // show2("a");
-                    }
+        //  -- begin training or recognition
+        if (voiceTime > 10) {
+            //  --- voice but not noise
+            if (pMain.controlPan.tFileState == STATE.RECORDING) {
+                if (pMain.controlPan.addTrainData(maxIndex)) {
+                    // show2("a");
+                } else {
                 }
-            } else if (timeDiff <= 600L && !voiceActive) {
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    if (pMain.controlPan.addTrainData(silentArray)) {
-                        // show2("-");
-                    }
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    if (pMain.controlPan.addMatchData(silentArray)) {
-                        // show2("-");
-                    }
-                }
-            } else if (timeDiff > 600L && voiceActive) {
-                // show("");
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    pMain.controlPan.endTrainChain();
-                    pMain.controlPan.newTrainChain();
-                    if (pMain.controlPan.addTrainData(maxIndex)) {
-                        // show("a");
-                    }
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    pMain.controlPan.endMatchChain();
-                    pMain.controlPan.newMatchChain();
-                    if (pMain.controlPan.addMatchData(maxIndex)) {
-                        // show("a");
-                    }
-                }
-            } else {
-                if (pMain.controlPan.tFileState == STATE.RECORDING) {
-                    pMain.controlPan.endTrainChain();
-                } else if (pMain.controlPan.latState == STATE.MATCH) {
-                    pMain.controlPan.endMatchChain();
+            } else if (pMain.controlPan.latState == STATE.MATCH) {
+                if (pMain.controlPan.addMatchData(maxIndex)) {
+                    // show2("a");
                 }
             }
-        } catch (Exception e) {
-        } 
+        }
+
         beginMode = false;
     }
 
