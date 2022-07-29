@@ -704,12 +704,11 @@ public class DiscreteFourierTransform extends BaseDataProcessor implements Share
         //  --- end showing peaks and histogram
 
         //  -- begin training or recognition
-        if (voiceTime > 10) {
+        if (voiceTime > 3) {
             //  --- voice but not noise
             if (pMain.controlPan.tFileState == STATE.RECORDING) {
                 if (pMain.controlPan.addTrainData(maxIndex)) {
                     // show2("a");
-                } else {
                 }
             } else if (pMain.controlPan.latState == STATE.MATCH) {
                 if (pMain.controlPan.addMatchData(maxIndex)) {

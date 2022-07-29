@@ -24,7 +24,7 @@ import java.util.Queue;
 import java.util.Scanner;
 import javax.swing.*;
 
-public class ControlPan implements Share {
+public final class ControlPan implements Share {
 
     String tFileName = "temp.txt";
     String lFileName = "lattice.txt";
@@ -57,9 +57,6 @@ public class ControlPan implements Share {
     public ControlPan(Main main_) {
         pMain = main_;
         if (GUI.ON) {
-            /**
-             * GUI Mode variable
-             */
             Toaster loc_toaster = new Toaster();
             toaster = loc_toaster;
             String[] typeStr = {"張三", "李四"};
@@ -124,8 +121,7 @@ public class ControlPan implements Share {
                 }
             });
 
-            open.addActionListener(
-                    new ActionListener() {
+            open.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -134,8 +130,7 @@ public class ControlPan implements Share {
             });
 
             // start recording training data
-            record.addActionListener(
-                    new ActionListener() {
+            record.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -144,8 +139,7 @@ public class ControlPan implements Share {
             });
 
             // clear training data file
-            clear.addActionListener(
-                    new ActionListener() {
+            clear.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -154,8 +148,7 @@ public class ControlPan implements Share {
             });
 
             // stop recording training data
-            stop.addActionListener(
-                    new ActionListener() {
+            stop.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -190,8 +183,7 @@ public class ControlPan implements Share {
                 }
             });
 
-            match.addActionListener(
-                    new ActionListener() {
+            match.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -199,8 +191,7 @@ public class ControlPan implements Share {
                 }
             });
 
-            loadSOM.addActionListener(
-                    new ActionListener() {
+            loadSOM.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -209,8 +200,7 @@ public class ControlPan implements Share {
             });
 
             // save SOM lattice to file ...
-            saveSOM.addActionListener(
-                    new ActionListener() {
+            saveSOM.addActionListener(new ActionListener() {
 
                 @Override
                 public void actionPerformed(ActionEvent ae) {
@@ -374,148 +364,32 @@ public class ControlPan implements Share {
 
     Queue<String> matchList = new LinkedList<>();
 
+    //  --- matching input chain and decide a category 
     public void matchInput(Chain chain_) {
-
-        double best = 0.0;
-        String type = "unknown";
-        int[][] inChainArray = chain_.getArray();
+        Category matchedCat = null;
+        int best = 0;
+        //  --- match all category in lattice
         for (Category cat : lattice.cats) {
-            for (Chain lchain : cat.chains) {
-                double score = chain_.matchScore_Array(inChainArray, lchain);
-                if (score > best) {
-                    best = score;
-                    type = cat.name;
-                }
+            int score = cat.matchScore_I(chain_);
+            if (score > best) {
+                best = score;
+                matchedCat = cat;
             }
-//            double fscore = cat.matchPeaks(chain_);
-//            if (fscore > fBest) {
-//                fBest = fscore;
-//                fType = cat.name;
-//            }
         }
-//        show("---- [Best Score: " + best + "], [Best Type: " + type + " [Best FScore: " + fBest + "], [Best FType: " + fType + "]");
-        show("---- [Best Score: " + best + "], [Best Type: " + type + "]");
-        // show("\nType: " + type + ", - Ratio: " + df.format(best) + " pResult: " + pResult);
-        if (best > 0.75) {
-            matchList.offer(type);
-            while (matchList.size() > 3) {
-                matchList.poll();
-            }
-            if (matchList.size() == 3) {
-                int cnt = 0;
-                for (String str : matchList) {
-                    if (str.equals(type)) {
-                        cnt++;
-                    }
-                }
-                if (cnt < 3) {
-                    return;
-                }
-            } else {
-                return;
-            }
-            show("\n-------------- Matched Type: " + type + " ---- Ratio: " + df.format(best));
-            if (pMain.mqtt.connected) {
-                if (type.equals("拍打")) {
-                    pMain.mqtt.publish("Beat!");
-                } else if (type.equals("咳嗽")) {
-                    pMain.mqtt.publish("Cough");
-                } else if (type.equals("打呼")) {
-                    pMain.mqtt.publish("Snore");
-                }
-            }
-        } else {
-            abVoiceCnt++;
-            // show("abVoiceCnt: " + abVoiceCnt);
-            if (abVoiceCnt > 2) {
-                abVoice = true;
-                // show("abVoice: true");
-
-            }
-            // show("\nBest Score: " + df.format(best));
+        String matchName = "";
+        if (matchedCat != null) {
+            matchName = matchedCat.name;
         }
-
-    }
-
-    public void showMatchResult() {
-        // ------ for all event, count event type
-        int maxScore = -1;
-        String mString = "";
-
-        if (maxScore > 12) {
-            if (DEBUG) {
-            }
-            if (cMatch.equals(mString)) {
-            } else {
-                if (pMain.mqtt.connected) {
-                }
-                if (GUI.ON) {
-                }
-            }
-        } else {
-            if (DEBUG) {
-            }
-            if (!cMatch.equals("None")) {
-                /**
-                 * cMatch is some type, not <None>
-                 */
-            }
+        double ratio = (double) best / (double) chain_.nodes.size();
+        if (ratio > 0.7) {
+            show("\n-------------- Matched Type: " + matchName + " ---- score: " + df.format(ratio));
         }
     }
 
     public boolean addTrainData(int[] maxIdx_) {
         Node nNode = new Node(maxIdx_);
-        if (nNode.peaks[0] == -1 && trainChain.nodes.isEmpty()) {
-            return false;
-        }
         trainChain.addNode(nNode);
         return true;
-    }
-
-    public void newTrainChain() {
-        if (GUI.ON) {
-            cType = ((JComboBox) type).getSelectedItem().toString();
-        }
-        endTrainChain();
-        trainChain = new Chain(cType);
-    }
-
-    public void endTrainChain() {
-        /**
-         * ending an training chain
-         */
-        if (trainChain != null && trainChain.nodes.size() > 30) {
-            int chainSize = trainChain.nodes.size();
-            while (chainSize > 0) {
-                Node firstNode = trainChain.nodes.get(0);
-                if (firstNode.peaks[0] == -1) {
-                    trainChain.nodes.remove(firstNode);
-                    chainSize--;
-                } else {
-                    break;
-                }
-            }
-            while (chainSize > 0) {
-                Node lastNode = trainChain.nodes.get(chainSize - 1);
-                if (lastNode.peaks[0] == -1) {
-                    trainChain.nodes.remove(lastNode);
-                    chainSize--;
-                } else {
-                    break;
-                }
-            }
-            int chSize = trainChain.nodes.size();
-            // show("chSize: " + chSize);
-            if (chSize > 30) {
-                trainCat.addChain(trainChain);
-                trainChain = null;
-            } else {
-                trainChain = null;
-            }
-
-        } else {
-            trainChain = null;
-        }
     }
 
     public boolean addMatchData(int[] maxIdx_) {
@@ -523,10 +397,13 @@ public class ControlPan implements Share {
         if (matchChain == null) {
             matchChain = new Chain("Input");
         }
-        if (nNode.peaks[0] == -1 && matchChain.nodes.isEmpty()) {
-            return false;
-        }
         matchChain.addNode(nNode);
+        if (matchChain.nodes.size() > 80) {
+            matchInput(matchChain);
+            for (int i=0; i<40; i++) {
+                matchChain.nodes.remove(0);
+            }
+        }
         return true;
     }
 
@@ -535,10 +412,7 @@ public class ControlPan implements Share {
     }
 
     public void endMatchChain() {
-        /**
-         * ending an training chain
-         */
-        if (matchChain != null && matchChain.nodes.size() > 30) {
+        if (matchChain != null && matchChain.nodes.size() > 50) {
             int chainSize = matchChain.nodes.size();
             while (chainSize > 0) {
                 Node firstNode = matchChain.nodes.get(0);
@@ -563,7 +437,7 @@ public class ControlPan implements Share {
 
             int chSize = matchChain.nodes.size();
             show2("chSize: " + chSize);
-            if (chSize > 25) {
+            if (chSize > 50) {
                 matchInput(matchChain);
             }
             matchChain = null;
@@ -574,7 +448,7 @@ public class ControlPan implements Share {
     public void loadAndMatch() {
         try {
             doLoadSOM();
-            lattice.showDetail();
+            lattice.showRouph();
         } catch (Exception e) {
         }
         latState = STATE.MATCH;
@@ -600,17 +474,11 @@ public class ControlPan implements Share {
             } else {
                 System.out.println("訓練樣本檔已經打開 .... ");
             }
-
-            newTrainChain();
-
         } catch (FileNotFoundException | UnsupportedEncodingException e) {
         }
     }
 
     public void doRecord() {
-        /**
-         * doRecord
-         */
         try {
             if (tFileState == STATE.OPEN) {
                 if (GUI.ON) {
@@ -619,7 +487,9 @@ public class ControlPan implements Share {
                     System.out.println("錄製訓練樣本 .... ");
                 }
                 tFileState = STATE.RECORDING;
-                trainCat = new Category("Train");
+                String cat = ((JComboBox) type).getSelectedItem().toString();
+                trainCat = new Category(cat);
+                trainChain = trainCat.chain;
             } else {
                 if (GUI.ON) {
                     ((Toaster) toaster).showToaster("樣本檔還未打開 .... ");
@@ -870,7 +740,7 @@ public class ControlPan implements Share {
                     );
                     show(
                             "--- Lattice loaded");
-                    lattice.showDetail();
+                    lattice.showRouph();
                 }
             }
 
@@ -919,13 +789,12 @@ public class ControlPan implements Share {
 
             fos.close();
 
-            lattice.showDetail();
+            lattice.showRouph();
         } catch (IOException e) {
         }
     }
 
     public boolean abVoice = false;
-    int abVoiceCnt = 0;
 
     public void enableABRec(boolean yes) {
         if (yes) {
@@ -936,11 +805,9 @@ public class ControlPan implements Share {
                     if (abVoice) {
                         pMain.mic.ccloSaveRecording();
                         abVoice = false;
-                        abVoiceCnt = 0;
                     } else {
                         pMain.mic.ccloDropRecording();
                         abVoice = false;
-                        abVoiceCnt = 0;
                     }
                 }
             });
